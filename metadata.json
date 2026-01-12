@@ -1,0 +1,8 @@
+
+{
+  "name": "Attendance Batcher Pro",
+  "description": "A sophisticated dashboard for managing and automating attendance record submissions with multi-user session support and QR code processing.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
