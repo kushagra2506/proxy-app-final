@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
@@ -27,6 +26,8 @@ const STORAGE_KEY = 'attendance_users_v1';
 const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }> = ({ onScan, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [maxZoom, setMaxZoom] = useState(1);
 
   useEffect(() => {
     let animationFrameId: number;
@@ -36,6 +37,14 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (videoRef.current) {
+          const videoTrack = stream.getVideoTracks()[0];
+          const capabilities = videoTrack.getCapabilities();
+
+          if (capabilities.zoom) {
+            setMaxZoom(capabilities.zoom.max || 1);
+            setZoom(capabilities.zoom.min || 1);
+          }
+
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute('playsinline', 'true');
           videoRef.current.play();
@@ -82,6 +91,18 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
     };
   }, [onScan, onClose]);
 
+  const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newZoom = parseFloat(e.target.value);
+    setZoom(newZoom);
+    const videoTrack = (videoRef.current?.srcObject as MediaStream)?.getVideoTracks()[0];
+    if (videoTrack) {
+      const settings = videoTrack.getSettings();
+      if (settings.zoom !== undefined) {
+        videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col items-center justify-center p-4 backdrop-blur-md">
       <div className="relative w-full max-w-sm aspect-square bg-slate-900 rounded-3xl border-4 border-emerald-500/20 overflow-hidden shadow-[0_0_100px_rgba(16,185,129,0.2)]">
@@ -101,6 +122,15 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
         <p className="text-emerald-400 font-black text-lg tracking-[0.2em] uppercase animate-pulse">Align QR Code</p>
         <p className="text-slate-500 text-xs">The scanner will automatically detect the attendanceId</p>
       </div>
+      <input
+        type="range"
+        min="1"
+        max={maxZoom}
+        step="0.1"
+        value={zoom}
+        onChange={handleZoomChange}
+        className="mt-4 w-3/4"
+      />
       <button 
         onClick={onClose}
         className="mt-12 px-10 py-4 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/30 rounded-full font-black text-sm uppercase tracking-widest transition-all active:scale-95"
