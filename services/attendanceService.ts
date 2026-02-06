@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { AttendancePayload } from "../types";
 
@@ -29,14 +28,19 @@ export const analyzeRequestStructure = async (rawRequest: string) => {
  * to student.bennetterp.camu.in.
  */
 export const sendAttendanceRequest = async (
-  payload: AttendancePayload, 
+  attendanceId: string, // Extracted from QR code
+  cmStuId: string, // Provided by user
   connectSid: string
 ) => {
   const url = 'https://student.bennetterp.camu.in/api/Attendance/record-online-attendance';
-  
-  // This is a template of how the real request looks.
-  // In a real browser context, cross-origin headers and cookie restrictions (HttpOnly)
-  // mean this code won't work unless run as a browser extension or server-side.
+
+  // Construct the payload
+  const payload = {
+    attendanceId: attendanceId, // Map attendanceId explicitly
+    CmStuId: cmStuId, // Map CmStuId explicitly
+    offQrCdEnbld: true
+  };
+
   const options = {
     method: 'POST',
     headers: {
@@ -49,6 +53,21 @@ export const sendAttendanceRequest = async (
     body: JSON.stringify(payload)
   };
 
-  console.log("Simulating request to:", url, "with payload:", payload);
-  return options;
+  try {
+    console.log("Sending request to backend with payload:", payload);
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+      const errorResponse = await response.text();
+      console.error("Backend error response:", errorResponse);
+      throw new Error(`HTTP error! status: ${response.status}, response: ${errorResponse}`);
+    }
+
+    const data = await response.json();
+    console.log("Request successful. Response:", data);
+    return data;
+  } catch (error) {
+    console.error("Error sending attendance request:", error);
+    throw error;
+  }
 };
