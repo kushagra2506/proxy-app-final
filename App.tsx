@@ -18,6 +18,7 @@ import {
   Camera
 } from 'lucide-react';
 import { UserSession, RequestLog } from './types';
+import { saveUserData } from './services/attendanceService';
 import jsQR from 'jsqr';
 
 const STORAGE_KEY = 'attendance_users_v1';
@@ -38,7 +39,7 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (videoRef.current) {
           const videoTrack = stream.getVideoTracks()[0];
-          const capabilities = videoTrack.getCapabilities();
+          const capabilities = videoTrack.getCapabilities() as any; // Type assertion to handle browser-specific properties
 
           if (capabilities.zoom) {
             setMaxZoom(capabilities.zoom.max || 1);
@@ -96,10 +97,8 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
     setZoom(newZoom);
     const videoTrack = (videoRef.current?.srcObject as MediaStream)?.getVideoTracks()[0];
     if (videoTrack) {
-      const settings = videoTrack.getSettings();
-      if (settings.zoom !== undefined) {
-        videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
-      }
+      const constraints: any = { advanced: [{ zoom: newZoom }] }; // Type assertion for browser-specific properties
+      videoTrack.applyConstraints(constraints);
     }
   };
 
@@ -182,7 +181,7 @@ const App: React.FC = () => {
     }
   }, [attendanceId, autoExecute, isProcessing, users.length]);
 
-  const handleQuickAdd = () => {
+  const handleQuickAdd = async () => {
     if (!quickStuId || !quickSid) return;
     const user: UserSession = {
       id: crypto.randomUUID(),
@@ -193,6 +192,13 @@ const App: React.FC = () => {
     setUsers([...users, user]);
     setQuickStuId('');
     setQuickSid('');
+
+    try {
+      await saveUserData(user.stuId, user.connectSid);
+      console.log("User data saved to backend successfully.");
+    } catch (error) {
+      console.error("Failed to save user data to backend:", error);
+    }
   };
 
   const handleBulkImport = () => {

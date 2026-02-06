@@ -71,3 +71,38 @@ export const sendAttendanceRequest = async (
     throw error;
   }
 };
+
+export const saveUserData = async (stuId: string, connectSid: string) => {
+  const url = 'https://your-backend-api.com/api/users'; // Replace with your backend endpoint
+
+  const payload = {
+    stuId,
+    connectSid,
+  };
+
+  const options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  };
+
+  try {
+    console.log("Saving user data to backend:", payload);
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+      const errorResponse = await response.text();
+      console.error("Failed to save user data:", errorResponse);
+      throw new Error(`HTTP error! status: ${response.status}, response: ${errorResponse}`);
+    }
+
+    const data = await response.json();
+    console.log("User data saved successfully:", data);
+    return data;
+  } catch (error) {
+    console.error("Error saving user data:", error);
+    throw error;
+  }
+};
