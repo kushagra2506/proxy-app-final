@@ -278,9 +278,31 @@ const App: React.FC = () => {
     if (autoExecute) setAttendanceId(''); 
   };
 
-  const onScanSuccess = (id: string) => {
-    setAttendanceId(id);
-    setIsScanning(false);
+  const onScanSuccess = async (id: string) => {
+    try {
+      // Send scanned data to the API endpoint
+      const response = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ attendanceId: id }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send attendance data');
+      }
+
+      const result = await response.json();
+      console.log('API Response:', result);
+
+      // Update state after successful API call
+      setAttendanceId(id);
+      setIsScanning(false);
+    } catch (error) {
+      console.error('Error sending attendance data:', error);
+      alert('Failed to send attendance data. Please try again.');
+    }
   };
 
   return (
@@ -374,17 +396,6 @@ const App: React.FC = () => {
             </div>
             <div className="space-y-4">
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input 
-                    type="text"
-                    placeholder="attendanceId..."
-                    value={attendanceId}
-                    onChange={(e) => setAttendanceId(e.target.value)}
-                    className={`w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-emerald-400 mono font-bold focus:outline-none focus:ring-1 transition ${
-                      isProcessing ? 'opacity-50' : 'focus:ring-emerald-500/50'
-                    }`}
-                  />
-                </div>
                 <button 
                   onClick={() => setIsScanning(true)}
                   className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-500 border border-emerald-500/30 p-3 rounded-lg transition group flex items-center justify-center shrink-0"
