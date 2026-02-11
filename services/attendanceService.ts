@@ -1,108 +1,88 @@
-import { GoogleGenAI } from "@google/genai";
-import { AttendancePayload } from "../types";
+import { AttendancePayload } from "../types"; // adjust path if needed
 
 /**
- * In a real-world scenario, you would use this to explain 
- * the structure of the request or generate documentation for the API.
- */
-export const analyzeRequestStructure = async (rawRequest: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Analyze this HTTP request and extract the parameters needed for a batch script. 
-      Identify headers and body fields. 
-      Request: \n\n${rawRequest}`,
-    });
-    return response.text;
-  } catch (err) {
-    console.error("AI Analysis failed", err);
-    return null;
-  }
-};
-
-/**
- * Mock function representing the actual fetch call.
- * Note: Browser CORS will block this if executed directly from the web app
- * to student.bennetterp.camu.in.
+ * Sends attendance marking request to the Camu ERP endpoint.
+ * Uses only attendanceId + session cookie (connect.sid).
  */
 export const sendAttendanceRequest = async (
-  attendanceId: string, // Extracted from QR code
-  cmStuId: string, // Provided by user
+  attendanceId: string,
   connectSid: string
-) => {
-  const url = 'https://student.bennetterp.camu.in/api/Attendance/record-online-attendance';
+): Promise<any> => {
+  const url = "https://student.bennetterp.camu.in/api/Attendance/record-online-attendance";
 
-  // Construct the payload
   const payload = {
-    attendanceId: attendanceId, // Map attendanceId explicitly
-    CmStuId: cmStuId, // Map CmStuId explicitly
-    offQrCdEnbld: true
+    attendanceId: attendanceId.trim(),
+    // offQrCdEnbld: true,     // ← uncomment ONLY if you see it's still required
   };
 
-  const options = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cookie': `connect.sid=${connectSid}`,
-      'User-Agent': navigator.userAgent,
-      'Origin': 'https://student.bennetterp.camu.in',
-      'Referer': 'https://student.bennetterp.camu.in/v2/timetable',
-    },
-    body: JSON.stringify(payload)
+  const headers = {
+    "Content-Type": "application/json",
+    "Cookie": `connect.sid=${connectSid}`,
+    "Origin": "https://student.bennetterp.camu.in",
+    "Referer": "https://student.bennetterp.camu.in/v2/timetable",
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    "Priority": "u=1, i",
   };
 
   try {
-    console.log("Sending request to backend with payload:", payload);
-    const response = await fetch(url, options);
+    console.log("[AttendanceService] Sending request", {
+      attendanceId,
+      payload,
+      cookiePrefix: connectSid.substring(0, 12) + "...",
+    });
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      // Note: credentials: "include" usually not helpful here due to cross-origin
+    });
 
     if (!response.ok) {
-      const errorResponse = await response.text();
-      console.error("Backend error response:", errorResponse);
-      throw new Error(`HTTP error! status: ${response.status}, response: ${errorResponse}`);
+      let errorBody = "";
+      try {
+        errorBody = await response.text();
+      } catch {}
+      console.error("[AttendanceService] Failed", {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorBody,
+      });
+      throw new Error(`Attendance request failed: ${response.status} - ${errorBody || "No response body"}`);
     }
 
     const data = await response.json();
-    console.log("Request successful. Response:", data);
+    console.log("[AttendanceService] Success", data);
     return data;
-  } catch (error) {
-    console.error("Error sending attendance request:", error);
-    throw error;
+  } catch (err) {
+    console.error("[AttendanceService] Error:", err);
+    throw err;
   }
 };
 
-export const saveUserData = async (stuId: string, connectSid: string) => {
-  const url = 'https://your-backend-api.com/api/users'; // Replace with your backend endpoint
+/**
+ * Optional: Save user session to your own backend (if you have one)
+ */
+export const saveUserData = async (stuId: string | null, connectSid: string) => {
+  // If you don't have a backend yet → just return for now
+  console.log("[saveUserData] Would save:", { connectSid: connectSid.substring(0, 12) + "..." });
+  return { success: true, message: "Saved locally only (no backend)" };
 
-  const payload = {
-    stuId,
-    connectSid,
-  };
-
-  const options = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  };
-
-  try {
-    console.log("Saving user data to backend:", payload);
-    const response = await fetch(url, options);
-
-    if (!response.ok) {
-      const errorResponse = await response.text();
-      console.error("Failed to save user data:", errorResponse);
-      throw new Error(`HTTP error! status: ${response.status}, response: ${errorResponse}`);
-    }
-
-    const data = await response.json();
-    console.log("User data saved successfully:", data);
-    return data;
-  } catch (error) {
-    console.error("Error saving user data:", error);
-    throw error;
-  }
+  // Uncomment when you have a real backend:
+  /*
+  const url = "https://your-backend.com/api/users";
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectSid }),
+  });
+  if (!response.ok) throw new Error("Failed to save session");
+  return response.json();
+  */
 };
