@@ -1,88 +1,203 @@
-import { AttendancePayload } from "../types"; // adjust path if needed
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Users,
+  QrCode,
+  Terminal,
+  Plus,
+  Trash2,
+  Play,
+  History,
+  Cpu,
+  FileJson,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Copy,
+  Key,
+  UserCheck,
+  Camera,
+} from "lucide-react";
+import { UserSession, RequestLog } from "./types";
+import { sendAttendanceRequest } from "./services/attendanceService";
+import jsQR from "jsqr";
 
-/**
- * Sends attendance marking request to the Camu ERP endpoint.
- * Uses only attendanceId + session cookie (connect.sid).
- */
-export const sendAttendanceRequest = async (
-  attendanceId: string,
-  connectSid: string
-): Promise<any> => {
-  const url = "https://student.bennetterp.camu.in/api/Attendance/record-online-attendance";
+// ... (keep your QRScanner component exactly as it is)
 
-  const payload = {
-    attendanceId: attendanceId.trim(),
-    // offQrCdEnbld: true,     // ← uncomment ONLY if you see it's still required
-  };
+const STORAGE_KEY = "attendance_users_v1";
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Cookie": `connect.sid=${connectSid}`,
-    "Origin": "https://student.bennetterp.camu.in",
-    "Referer": "https://student.bennetterp.camu.in/v2/timetable",
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Dest": "empty",
-    "Priority": "u=1, i",
-  };
+const App: React.FC = () => {
+  const [users, setUsers] = useState<UserSession[]>([]);
+  const [logs, setLogs] = useState<RequestLog[]>([]);
+  const [attendanceId, setAttendanceId] = useState<string>("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [autoExecute, setAutoExecute] = useState(false);
 
-  try {
-    console.log("[AttendanceService] Sending request", {
-      attendanceId,
-      payload,
-      cookiePrefix: connectSid.substring(0, 12) + "...",
-    });
+  const [quickStuId, setQuickStuId] = useState("");
+  const [quickSid, setQuickSid] = useState("");
+  const [bulkJson, setBulkJson] = useState("");
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      // Note: credentials: "include" usually not helpful here due to cross-origin
-    });
-
-    if (!response.ok) {
-      let errorBody = "";
+  // Load from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
       try {
-        errorBody = await response.text();
-      } catch {}
-      console.error("[AttendanceService] Failed", {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorBody,
-      });
-      throw new Error(`Attendance request failed: ${response.status} - ${errorBody || "No response body"}`);
+        setUsers(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load users", e);
+      }
+    }
+  }, []);
+
+  // Save to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+  }, [users]);
+
+  // Auto-execute when new attendanceId appears (if enabled)
+  useEffect(() => {
+    if (autoExecute && attendanceId.length > 5 && !isProcessing && users.length > 0) {
+      const timer = setTimeout(() => runBatch(), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [attendanceId, autoExecute, isProcessing, users.length]);
+
+  const handleQuickAdd = () => {
+    if (!quickSid.trim()) return;
+
+    const user: UserSession = {
+      id: crypto.randomUUID(),
+      name: `User ${users.length + 1}`,
+      connectSid: quickSid.trim(),
+      // stuId is no longer required
+    };
+
+    setUsers([...users, user]);
+    setQuickStuId("");
+    setQuickSid("");
+
+    // Optional: save to your backend
+    saveUserData(null, quickSid.trim()).catch(console.error);
+  };
+
+  const handleBulkImport = () => {
+    try {
+      const parsed = JSON.parse(bulkJson);
+      if (!Array.isArray(parsed)) throw new Error("Must be an array");
+
+      const validated = parsed
+        .map((u: any) => ({
+          id: u.id || crypto.randomUUID(),
+          name: u.name || `User ${Math.floor(Math.random() * 1000)}`,
+          connectSid: (u.connectSid || u.connect_sid || "").trim(),
+        }))
+        .filter((u) => u.connectSid);
+
+      setUsers((prev) => [...prev, ...validated]);
+      setShowBulkImport(false);
+      setBulkJson("");
+    } catch (e) {
+      alert("Invalid JSON format or missing connect.sid");
+    }
+  };
+
+  const deleteUser = (id: string) => {
+    setUsers(users.filter((u) => u.id !== id));
+  };
+
+  const addLog = (log: Omit<RequestLog, "id" | "timestamp">) => {
+    const newLog: RequestLog = {
+      ...log,
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+    };
+    setLogs((prev) => [newLog, ...prev].slice(0, 100));
+  };
+
+  const runBatch = async () => {
+    if (!attendanceId.trim()) {
+      alert("No attendance ID set");
+      return;
     }
 
-    const data = await response.json();
-    console.log("[AttendanceService] Success", data);
-    return data;
-  } catch (err) {
-    console.error("[AttendanceService] Error:", err);
-    throw err;
-  }
+    setIsProcessing(true);
+    const currentAttendanceId = attendanceId.trim();
+
+    for (const user of users) {
+      addLog({
+        userName: user.name,
+        attendanceId: currentAttendanceId,
+        status: "pending",
+        message: `Marking attendance for ${user.name} (SID: ${user.connectSid.substring(0, 8)}...)`,
+      });
+
+      try {
+        // Add small delay to avoid rate-limiting / IP block
+        await new Promise((r) => setTimeout(r, 1200));
+
+        await sendAttendanceRequest(currentAttendanceId, user.connectSid);
+
+        addLog({
+          userName: user.name,
+          attendanceId: currentAttendanceId,
+          status: "success",
+          message: "Attendance marked successfully",
+        });
+
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === user.id ? { ...u, lastUsed: Date.now() } : u
+          )
+        );
+      } catch (err: any) {
+        addLog({
+          userName: user.name,
+          attendanceId: currentAttendanceId,
+          status: "failed",
+          message: err.message || "Request failed",
+        });
+      }
+    }
+
+    setIsProcessing(false);
+    if (autoExecute) setAttendanceId("");
+  };
+
+  const onScanSuccess = (scanned: string) => {
+    setAttendanceId(scanned.trim());
+    setIsScanning(false);
+  };
+
+  // ──────────────────────────────────────────────
+  // Render
+  // ──────────────────────────────────────────────
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 md:p-8 relative">
+      {isScanning && <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} />}
+
+      {/* ... rest of your header, buttons, quick add, bulk import, profile matrix, logs ... */}
+
+      {/* Example: keep your existing UI structure */}
+      {/* Just make sure runBatch is called when you press "Start Execution" */}
+
+      <button
+        disabled={isProcessing || users.length === 0 || !attendanceId.trim()}
+        onClick={runBatch}
+        className={`flex items-center gap-2 px-6 py-2 rounded-lg font-semibold transition ${
+          isProcessing || users.length === 0 || !attendanceId.trim()
+            ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+            : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/40"
+        }`}
+      >
+        <Play size={18} fill="currentColor" />
+        {isProcessing ? "Processing..." : "Start Execution"}
+      </button>
+
+      {/* ... rest of your JSX (logs, user cards, etc.) ... */}
+    </div>
+  );
 };
 
-/**
- * Optional: Save user session to your own backend (if you have one)
- */
-export const saveUserData = async (stuId: string | null, connectSid: string) => {
-  // If you don't have a backend yet → just return for now
-  console.log("[saveUserData] Would save:", { connectSid: connectSid.substring(0, 12) + "..." });
-  return { success: true, message: "Saved locally only (no backend)" };
-
-  // Uncomment when you have a real backend:
-  /*
-  const url = "https://your-backend.com/api/users";
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ connectSid }),
-  });
-  if (!response.ok) throw new Error("Failed to save session");
-  return response.json();
-  */
-};
+export default App;
